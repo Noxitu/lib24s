@@ -1,0 +1,13 @@
+
+
+#auth    http://example.org/auth/
+#auth    tcp://example.org:1234/
+auth    file://./users.txt
+#auth    unix:///tmp/lib24-auth.sock
+#auth    http+unix://%2Ftmp%2Flib24-auth.sock/auth/
+#auth    dummy:grzesiu=g
+
+listen  tcp :8000
+#listen  http :8002
+
+game    baj.so
