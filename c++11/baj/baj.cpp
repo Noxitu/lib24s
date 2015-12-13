@@ -54,10 +54,11 @@ class Round {
         size_t next_faction_id = 1;
         
         vector<Tile> tiles;
+    public:
         Tile &getTile(Position const &p) {
             return tiles.at(p.x+p.y*n);
         }
-    public:
+        
         size_t n, m, c, l;
         
         Round() {
@@ -220,6 +221,19 @@ class BajConnection : public Connection {
         }
         
         void DESCRIBE_COTTAGES(istream &in) {
+            requireRound();
+                
+            std::ostringstream sout;
+            vector<Position> cottages;
+            for( auto k : player->faction->knights )
+                if( gGame->round->getTile(k->pos).type == FieldType::Cottage )
+                    cottages.push_back(k->pos);
+                    
+            sout << cottages.size() << '\n';
+            for( auto &pos : cottages )
+                sout << pos.x << ' ' << pos.y << '\n';
+                
+            client->write(sout.str());  
         }
         
         void EXPLORE(istream &in) {
