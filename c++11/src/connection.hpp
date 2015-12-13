@@ -22,9 +22,10 @@ class Connection {
         }
     public:
         void OK() {
-            client->write("OK");
+            client->write("OK\n");
         }
         Connection(std::shared_ptr<Client> client) : client(client) {}
+        ~Connection() {}
         
         virtual void read() {
             std::istringstream sin(client->read());

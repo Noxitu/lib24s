@@ -40,11 +40,6 @@ class TCPClient : public Client {
             int ret = ::write(socket, data.c_str(), data.size());
             if( ret != data.size() )
                 throw Disconnected("Couldn't write socket.");
-                
-            static char const new_line[] = "\r\n";
-            ret = ::write(socket, new_line, sizeof(new_line));
-            if( ret != sizeof(new_line) )
-                throw Disconnected("Couldn't write socket.");
         };
         
         std::string read() override {
@@ -58,10 +53,8 @@ class TCPClient : public Client {
             while( pos == _buffer_b and _buffer_b != std::end(_buffer) ) {
                 int ret = ::read(socket, _buffer_b, std::distance(_buffer_b, std::end(_buffer)));
                 
-                std::cout << "reading" << std::endl;
                 if( ret == 0 )
                     throw Disconnected("Disconnected.");
-                std::cout << "reading2" << std::endl;
                 if( ret < 0 )
                     throw Disconnected("Couldn't read socket.");
                     

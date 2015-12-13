@@ -14,15 +14,14 @@ shared_ptr<Config> gConfig;
 
 void connection(shared_ptr<Client> client, ConnectionFactory factory) {
     try {
-        client->write("LOGIN");
+        client->write("LOGIN\n");
         std::string username = client->read();
-        client->write("PASSWORD");
+        client->write("PASSWORD\n");
         std::string password = client->read();
         Auth::UserData data = gAuth->find_user(username, password);
         
         if( data.level == PermissionLevel::None ) {
-            client << Error::invalid_auth;
-            return;
+            throw Error::invalid_auth;
         }
         shared_ptr<Connection> conn = factory(data.id, data.level, client);
         conn->OK();
@@ -34,6 +33,8 @@ void connection(shared_ptr<Client> client, ConnectionFactory factory) {
                 client << error;
             }
         }
+    } catch(Error const &error) {
+        client << error;
     } catch(Client::Disconnected const &exc) {
         clog << "Someone disconnected: " << exc.what() << endl;
     } catch(std::exception const &exc) {
@@ -41,11 +42,17 @@ void connection(shared_ptr<Client> client, ConnectionFactory factory) {
             client << Error::internal;
         } catch(...) {}
         clog << "Unknown exception throwed: " << typeid(exc).name() << '(' << exc.what() << ')' << endl;
+    } catch(char const *& str) {
+        try {
+            client << Error::internal;
+        } catch(...) {}
+        clog << "Unknown 'exception' throwed: " << str << endl;
     } catch(...) {
         try {
             client << Error::internal;
         } catch(...) {}
         clog << "Unknown 'exception' throwed." << endl;
+        throw;
     }
 }
 
