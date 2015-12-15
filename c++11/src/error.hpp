@@ -16,6 +16,8 @@ struct Error {
         }
         static const Error invalid_auth;
         static const Error unknown_command;
+        static const Error wrong_arg_num;
+        static const Error invalid_arg_syntax;
         static const Error too_many_connections;
         static const Error internal;
         static const Error no_round;

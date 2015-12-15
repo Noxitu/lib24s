@@ -2,6 +2,7 @@
 #include "error.hpp"
 #include "listener.hpp"
 #include <bits/stdc++.h>
+#include <chrono>
 
 #define CONNECTION_RUNCMD_METHOD void runcmd(std::string const& name, std::istream& in) override { \
     auto it = command_map.find(name); \
@@ -13,6 +14,18 @@
 class Connection {
     public:
         typedef void(Connection::*Command)(std::istream&);
+        static void validate_stream(std::istream const &in) {
+            if( in.bad() )
+                throw Error::internal;
+            if( not in.eof() ) {
+                if( in.fail() )
+                    throw Error::invalid_arg_syntax;
+                else
+                    throw Error::wrong_arg_num;
+            }
+            if( in.fail() )
+                throw Error::wrong_arg_num;
+        }
     private:
     protected:
         std::shared_ptr<Client> client;
@@ -28,7 +41,11 @@ class Connection {
         ~Connection() {}
         
         virtual void read() {
+            static auto prev = std::chrono::high_resolution_clock::now();
+            std::chrono::duration<double> time_span = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::high_resolution_clock::now() - prev);
+            std::cout << time_span.count() << std::endl;
             std::istringstream sin(client->read());
+            prev = std::chrono::high_resolution_clock::now();
             std::string name;
             sin >> name;
             runcmd(name, sin);

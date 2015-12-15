@@ -38,7 +38,11 @@ class TCPClient : public Client {
         }
         void write(std::string const &data) override {
             int ret = ::write(socket, data.c_str(), data.size());
-            if( ret != data.size() )
+            if( ret < 0 )
+                throw Disconnected("Couldn't write socket.");
+                
+            size_t bytes_written = ret;
+            if( bytes_written != data.size() )
                 throw Disconnected("Couldn't write socket.");
         };
         

@@ -1,4 +1,4 @@
-FLAGS=-std=c++11 -fdiagnostics-color=always
+FLAGS=-std=c++11 -fdiagnostics-color=always -Wall -pedantic
 
 24: src/main.cpp src/error.cpp src/*.hpp
 	g++ $(FLAGS) -o 24 src/main.cpp src/error.cpp -ldl

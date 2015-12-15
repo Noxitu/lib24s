@@ -1,4 +1,5 @@
 #include "connection.hpp"
+#include "position.hpp"
 
 using namespace std;
 
@@ -16,13 +17,14 @@ BajError const BajError::no_enough_knights(103, "There are not enough knights on
 BajError const BajError::field_blocked(104, "It is impossible to move onto this field.");
 
 
-enum class FieldType { Grass, LemonTree, Cottage, Water };
-
-struct Position {
-    short x, y;
-    short const n, m;
-    Position( short x, short y, short n, short m ) : x(x%n), y(y%m), n(n), m(m) {}
+enum class FieldType : char { 
+    Grass = '.',
+    LemonTree = 'L',
+    Cottage = 'C', 
+    Water = '#'
 };
+
+using namespace Torus;
 
 struct Knights {
     Position pos;
@@ -32,8 +34,8 @@ struct Knights {
 };
 
 struct Faction {
-    uint32_t id;
-    uint32_t points = 0;
+    int id;
+    int points = 0;
     vector<shared_ptr<Knights>> knights;
 };
 
@@ -55,19 +57,26 @@ class Round {
         
         vector<Tile> tiles;
     public:
+        bool is_valid(Coords const &p) {
+            return p.x >= 0 and p.y >= 0 and (unsigned int)p.x < n and (unsigned int)p.y < n;
+        }
+        Position position(Coords const &p) {
+            return Position(p.x, p.y, n, m);
+        }
         Tile &getTile(Position const &p) {
             return tiles.at(p.x+p.y*n);
         }
         
         size_t n, m, c, l;
+        unsigned int const sight_range = 2;
         
         Round() {
-            int bars = 10;
-            int bar_height = 9;
-            int knights_per_faction = 1; // >1 is bad idea
-            int knights_strength = 300;
-            int lemons_per_faction = 3;
-            int cottages_per_faction = 3;
+            unsigned int bars = 10;
+            unsigned int bar_height = 9;
+            unsigned int knights_per_faction = 1; // >1 is bad idea
+            unsigned int knights_strength = 300;
+            unsigned int lemons_per_faction = 3;
+            unsigned int cottages_per_faction = 3;
             
             n = 90;
             m = bar_height * bars;
@@ -76,39 +85,39 @@ class Round {
             
             auto seed = std::chrono::system_clock::now().time_since_epoch().count();
             std::default_random_engine rand(seed);
-            int normal_tiles = n*bar_height - knights_per_faction - lemons_per_faction - cottages_per_faction;
-            int water_count = std::uniform_int_distribution<int>(0, normal_tiles/10)(rand);
+            unsigned int normal_tiles = n*bar_height - knights_per_faction - lemons_per_faction - cottages_per_faction;
+            unsigned int water_count = std::uniform_int_distribution<unsigned int>(0, normal_tiles/10)(rand);
             normal_tiles -= water_count;
             
-            int bar_step = std::uniform_int_distribution<int>(0,n-1)(rand);
+            unsigned int bar_step = std::uniform_int_distribution<unsigned int>(0,n-1)(rand);
             
             tiles.resize(n*m);
             
             vector<shared_ptr<Faction>> vec_factions;
-            for( int i = 0; i < bars; i++ ) {
+            for( unsigned int i = 0; i < bars; i++ ) {
                 vec_factions.push_back( spawnFaction() );
             }
             unused_faction = begin(factions);
 
-            vector<int> chances = {water_count, knights_per_faction, lemons_per_faction, cottages_per_faction, normal_tiles};
-            for( int x = 0; x < n; x++ )
-                for( int y = 0; y < bar_height; y++ ) {
-                    vector<int> distr;
+            vector<unsigned int> chances = {water_count, knights_per_faction, lemons_per_faction, cottages_per_faction, normal_tiles};
+            for( unsigned int x = 0; x < n; x++ )
+                for( unsigned int y = 0; y < bar_height; y++ ) {
+                    vector<unsigned int> distr;
                     {
                         int sum = 0;
-                        for( int i = 0; i < chances.size(); i++ ) {
+                        for( unsigned int i = 0; i < chances.size(); i++ ) {
                             sum += chances[i];
                             distr.push_back(sum);
                         }
                     }
                     size_t type = 0;
                     {
-                        int random_value = std::uniform_int_distribution<int>(0,distr.back()-1)(rand);
+                        unsigned int random_value = std::uniform_int_distribution<unsigned int>(0,distr.back()-1)(rand);
                         while( random_value >= distr[type] ) type++;
                     }
                     chances[type]--;
                     
-                    for( int i = 0; i < bars; i++ ) {
+                    for( unsigned int i = 0; i < bars; i++ ) {
                         Position pos(x+i*bar_step, y+i*bar_height, n, m);
                         Tile &tile = getTile(pos);
                         switch(type) {
@@ -116,7 +125,7 @@ class Round {
                                 tile.type = FieldType::Water;
                                 break;
                             case 1: {
-                                shared_ptr<Knights> k = make_shared<Knights>(pos, i, knights_strength);
+                                shared_ptr<Knights> k = make_shared<Knights>(pos, vec_factions.at(i)->id, knights_strength);
                                 tile.type = FieldType::Grass;
                                 tile.knight = k;
                                 vec_factions[i]->knights.push_back(k);
@@ -189,11 +198,12 @@ class BajConnection : public Connection {
     private:
         shared_ptr<Player> player;
         
-        void requireRound() const {
+        shared_ptr<Round> requireRound() const {
             if( not gGame->round )
                 throw Error::no_round;
             if( not player->faction )
                 throw Error::no_round;
+            return gGame->round;
         }
         
     protected:
@@ -215,7 +225,7 @@ class BajConnection : public Connection {
             std::ostringstream sout;
             sout << player->faction->knights.size() << '\n';
             for( auto k : player->faction->knights )
-                sout << k->pos.x << ' ' << k->pos.y << ' ' << k->amount << '\n';
+                sout << k->pos << ' ' << k->amount << '\n';
                 
             client->write(sout.str());    
         }
@@ -224,7 +234,7 @@ class BajConnection : public Connection {
             requireRound();
                 
             std::ostringstream sout;
-            vector<Position> cottages;
+            vector<Coords> cottages;
             for( auto k : player->faction->knights )
                 if( gGame->round->getTile(k->pos).type == FieldType::Cottage )
                     cottages.push_back(k->pos);
@@ -237,6 +247,48 @@ class BajConnection : public Connection {
         }
         
         void EXPLORE(istream &in) {
+            auto round = requireRound();
+            Coords coords;
+            in >> coords;
+            validate_stream(in);
+            
+            if( not round->is_valid(coords) ) {
+                cerr << "invalid coord" << endl;
+                throw Error::internal;
+            }
+                
+            Position pos = round->position(coords);
+            
+            auto has_own = [&round, this](Tile const &t) {
+                return t.knight and t.knight->owner == player->faction->id;
+            };            
+            auto has_enemy = [&round, this](Tile const &t) {
+                return t.knight and t.knight->owner != player->faction->id;
+            };
+                
+            if( not has_own(round->getTile(pos)) ) {
+                cerr << "no squad" << endl;
+                throw Error::internal;
+            }
+                
+            std::ostringstream sout, sout2;
+            int r = gGame->round->sight_range, enemies = 0;
+            sout << r << '\n';
+            for( int dy = -r; dy <= r; dy++ ) {
+                for( int dx = -r; dx <= r; dx++ ) {
+                    Tile const &tile = round->getTile(pos + Coords{dx, dy});
+                    sout << (char)tile.type;
+                    if( has_enemy(round->getTile(pos)) ) {
+                        enemies++;
+                        sout2 << pos << '\n';
+                    }
+                }
+                sout << '\n';
+            }
+            sout << enemies << '\n';
+            sout << sout2.rdbuf();
+            
+            client->write(sout.str());
         }
         
         void MOVE_SQUAD(istream &in) {
