@@ -9,16 +9,19 @@ struct Coords {
     friend std::ostream& operator<<(std::ostream &out, Coords const &pos) {
         return out << pos.x << ' ' << pos.y;
     }
-    friend Coords operator "" _x (char const *x, size_t) {
-        return Coords{atoi(x),0};
-    }
-    friend Coords operator "" _y (char const *y, size_t) {
-        return Coords{0, atoi(y)};
-    }
     friend Coords operator+(Coords const &a, Coords const &b) {
         return Coords{a.x+b.x, a.y+b.y};
     }
+    constexpr Coords operator- () const {
+        return Coords{-x, -y};
+    }
 };
+constexpr Coords operator "" _x (long long unsigned x) {
+    return Coords{(int)x, 0};
+}
+constexpr Coords operator "" _y (long long unsigned y) {
+    return Coords{0, (int)y};
+}
 
 namespace Torus {
     constexpr int nn_mod(int a, int b) { return (a%b+b)%b; }
@@ -31,4 +34,19 @@ namespace Torus {
             return Position(a.x+a.y, a.y+b.y, a.n, a.m);
         }
     };
+}
+
+namespace HexagonalRectangle {
+    enum class Direction { W, NW, NE, E, SE, SW };
+    inline Coords operator+(Coords const &p, Direction dir) {
+        switch(dir) {
+            case Direction::W: return p + -1_x;
+            case Direction::E: return p +  1_x;
+            case Direction::NW: return p + -1_y + (p.y%2 == 1 ? -1_x : 0_x);
+            case Direction::NE: return p + -1_y + (p.y%2 == 0 ?  1_x : 0_x);
+            case Direction::SW: return p +  1_y + (p.y%2 == 1 ? -1_x : 0_x);
+            case Direction::SE: return p +  1_y + (p.y%2 == 0 ?  1_x : 0_x);
+            default: return p;
+        }
+    }
 }

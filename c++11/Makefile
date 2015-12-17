@@ -8,8 +8,8 @@ all: 24 baj.so
 test: all
 	./24
 
-baj.so: baj/baj.cpp src/*.hpp src/error.cpp
-	g++ $(FLAGS) -shared -fpic baj/baj.cpp src/error.cpp -o baj.so -I"src/"
+baj.so: baj/*.cpp baj/*.hpp src/*.hpp src/error.cpp
+	g++ $(FLAGS) -shared -fpic baj/*.cpp src/error.cpp -o baj.so -I"src/"
   
 clean:
 	rm ./24 ./baj.so
