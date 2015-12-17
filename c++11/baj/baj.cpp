@@ -1,7 +1,6 @@
 #include "connection.hpp"
-#include "position.hpp"
-
-using namespace std;
+#include "round.hpp"
+#include <bits/stdc++.h>
 
 struct BajError : public Error {
     protected:
@@ -14,185 +13,62 @@ struct BajError : public Error {
 
 BajError const BajError::no_knights(100, "No squad on this field belongs to you.");
 BajError const BajError::no_enough_knights(103, "There are not enough knights on the field.");
-BajError const BajError::field_blocked(104, "It is impossible to move onto this field.");
-
-
-enum class FieldType : char { 
-    Grass = '.',
-    LemonTree = 'L',
-    Cottage = 'C', 
-    Water = '#'
-};
-
-using namespace Torus;
-
-struct Knights {
-    Position pos;
-    int owner;
-    int amount;
-    Knights( Position const& pos, int owner, int amount ) : pos(pos), owner(owner), amount(amount) {}
-};
-
-struct Faction {
-    int id;
-    int points = 0;
-    vector<shared_ptr<Knights>> knights;
-};
-
-struct Tile {
-    FieldType type;
-    shared_ptr<Knights> knight = nullptr;
-};
-
-struct Player {
-    size_t active_connections = 0;
-    shared_ptr<Faction> faction = nullptr;
-};
-
-class Round {
-    private:
-        list<shared_ptr<Faction>> factions;
-        list<shared_ptr<Faction>>::iterator unused_faction;
-        size_t next_faction_id = 1;
-        
-        vector<Tile> tiles;
-    public:
-        bool is_valid(Coords const &p) {
-            return p.x >= 0 and p.y >= 0 and (unsigned int)p.x < n and (unsigned int)p.y < n;
-        }
-        Position position(Coords const &p) {
-            return Position(p.x, p.y, n, m);
-        }
-        Tile &getTile(Position const &p) {
-            return tiles.at(p.x+p.y*n);
-        }
-        
-        size_t n, m, c, l;
-        unsigned int const sight_range = 2;
-        
-        Round() {
-            unsigned int bars = 10;
-            unsigned int bar_height = 9;
-            unsigned int knights_per_faction = 1; // >1 is bad idea
-            unsigned int knights_strength = 300;
-            unsigned int lemons_per_faction = 3;
-            unsigned int cottages_per_faction = 3;
-            
-            n = 90;
-            m = bar_height * bars;
-            c = cottages_per_faction * bars;
-            l = lemons_per_faction * bars;
-            
-            auto seed = std::chrono::system_clock::now().time_since_epoch().count();
-            std::default_random_engine rand(seed);
-            unsigned int normal_tiles = n*bar_height - knights_per_faction - lemons_per_faction - cottages_per_faction;
-            unsigned int water_count = std::uniform_int_distribution<unsigned int>(0, normal_tiles/10)(rand);
-            normal_tiles -= water_count;
-            
-            unsigned int bar_step = std::uniform_int_distribution<unsigned int>(0,n-1)(rand);
-            
-            tiles.resize(n*m);
-            
-            vector<shared_ptr<Faction>> vec_factions;
-            for( unsigned int i = 0; i < bars; i++ ) {
-                vec_factions.push_back( spawnFaction() );
-            }
-            unused_faction = begin(factions);
-
-            vector<unsigned int> chances = {water_count, knights_per_faction, lemons_per_faction, cottages_per_faction, normal_tiles};
-            for( unsigned int x = 0; x < n; x++ )
-                for( unsigned int y = 0; y < bar_height; y++ ) {
-                    vector<unsigned int> distr;
-                    {
-                        int sum = 0;
-                        for( unsigned int i = 0; i < chances.size(); i++ ) {
-                            sum += chances[i];
-                            distr.push_back(sum);
-                        }
-                    }
-                    size_t type = 0;
-                    {
-                        unsigned int random_value = std::uniform_int_distribution<unsigned int>(0,distr.back()-1)(rand);
-                        while( random_value >= distr[type] ) type++;
-                    }
-                    chances[type]--;
-                    
-                    for( unsigned int i = 0; i < bars; i++ ) {
-                        Position pos(x+i*bar_step, y+i*bar_height, n, m);
-                        Tile &tile = getTile(pos);
-                        switch(type) {
-                            case 0:
-                                tile.type = FieldType::Water;
-                                break;
-                            case 1: {
-                                shared_ptr<Knights> k = make_shared<Knights>(pos, vec_factions.at(i)->id, knights_strength);
-                                tile.type = FieldType::Grass;
-                                tile.knight = k;
-                                vec_factions[i]->knights.push_back(k);
-                            }   break;
-                            case 2:
-                                tile.type = FieldType::LemonTree;
-                                break;
-                            case 3:
-                                tile.type = FieldType::Cottage;
-                                break;
-                            case 4:
-                                tile.type = FieldType::Grass;
-                                break;
-                        }
-                    }
-                }
-        }
-        
-        shared_ptr<Faction> spawnFaction() {
-            auto f = make_shared<Faction>();
-            f->id = next_faction_id++;
-            factions.push_back(f);
-            return f;
-        }
-        
-        void assignFaction(shared_ptr<Player> p) {
-            if( p->faction )
-                throw std::runtime_error("Player already controls faction.");
-                
-            if( unused_faction == end(factions) )
-                spawnFaction();
-                
-            p->faction = *(unused_faction++);
-        }
-};
-
-
 
 class Game {
     private:
         map<size_t, shared_ptr<Player>> players;
+        shared_ptr<thread> game_loop;
     public:
+        std::mutex mutex;
+        
         shared_ptr<Round> round = nullptr;
         
+        Game() {
+            game_loop = make_shared<thread>(Game::gameLoop, this);
+        }
+        
         void createRound() {
-            for( auto &p : players )
-                p.second->faction.reset();
-
-            round = make_shared<Round>();
+            round = Round::generateRandomRound();
             
             for( auto &p : players )
                 if( p.second->active_connections ) 
                     round->assignFaction(p.second);
         }
         
+        void endRound() {
+            for( auto &p : players )
+                p.second->faction.reset();
+                
+            round.reset();
+        }
+        
         shared_ptr<Player> getPlayer(size_t id) {
             shared_ptr<Player> p = players[id];
             if( not p ) {
-                players[id] = p = make_shared<Player>();
+                players[id] = p = make_shared<Player>(id);
                 if( round )
                     round->assignFaction(p);
             }
             return p;
         }
+        
+        void gameLoop() {
+            while(true) {
+                sleep(5);
+                
+                mutex.lock();
+                createRound();
+                thread round_thread(Round::roundLoop, round.get(), &mutex);
+                round_thread.join();
+                endRound();
+                mutex.unlock();
+                
+                sleep(30);
+            }
+        }
 };
 
-shared_ptr<Game> gGame = make_shared<Game>();
+shared_ptr<Game> gGame;
 
 class BajConnection : public Connection {
     private:
@@ -211,83 +87,96 @@ class BajConnection : public Connection {
         CONNECTION_RUNCMD_METHOD;
     public:
         void DESCRIBE_WORLD(istream &in) {
-            requireRound();
-            
             std::ostringstream sout;
-            sout << gGame->round->n << ' ' << gGame->round->m << ' ' << player->faction->id << ' ' << gGame->round->c << ' ' << gGame->round->l << '\n';
-            
+            {
+                unique_lock<mutex> _(gGame->mutex);
+                auto round = requireRound();
+                
+                sout << "OK\n";
+                sout << round->n << ' ' << round->m << ' ' << player->faction->id << ' ' << round->c << ' ' << round->l << '\n';
+            }
             client->write(sout.str());
         }
         
         void DESCRIBE_SQUADS(istream &in) {
-            requireRound();
-                
             std::ostringstream sout;
-            sout << player->faction->knights.size() << '\n';
-            for( auto k : player->faction->knights )
-                sout << k->pos << ' ' << k->amount << '\n';
-                
+            {
+                unique_lock<mutex> _(gGame->mutex);
+                requireRound();
+                 
+                sout << "OK\n";
+                sout << player->faction->knights.size() << '\n';
+                for( auto k : player->faction->knights )
+                    sout << k->pos << ' ' << k->amount << '\n';
+            }
             client->write(sout.str());    
         }
         
         void DESCRIBE_COTTAGES(istream &in) {
-            requireRound();
-                
-            std::ostringstream sout;
             vector<Coords> cottages;
-            for( auto k : player->faction->knights )
-                if( gGame->round->getTile(k->pos).type == FieldType::Cottage )
-                    cottages.push_back(k->pos);
-                    
+            {
+                unique_lock<mutex> _(gGame->mutex);
+                requireRound();
+                
+                for( auto k : player->faction->knights )
+                    if( gGame->round->getTile(k->pos).type == FieldType::Cottage )
+                        cottages.push_back(k->pos);
+                        
+            }   
+            std::ostringstream sout;
+            sout << "OK\n";
             sout << cottages.size() << '\n';
             for( auto &pos : cottages )
                 sout << pos.x << ' ' << pos.y << '\n';
-                
             client->write(sout.str());  
         }
         
         void EXPLORE(istream &in) {
-            auto round = requireRound();
-            Coords coords;
-            in >> coords;
-            validate_stream(in);
-            
-            if( not round->is_valid(coords) ) {
-                cerr << "invalid coord" << endl;
-                throw Error::internal;
-            }
-                
-            Position pos = round->position(coords);
-            
-            auto has_own = [&round, this](Tile const &t) {
-                return t.knight and t.knight->owner == player->faction->id;
-            };            
-            auto has_enemy = [&round, this](Tile const &t) {
-                return t.knight and t.knight->owner != player->faction->id;
-            };
-                
-            if( not has_own(round->getTile(pos)) ) {
-                cerr << "no squad" << endl;
-                throw Error::internal;
-            }
-                
             std::ostringstream sout, sout2;
-            int r = gGame->round->sight_range, enemies = 0;
-            sout << r << '\n';
-            for( int dy = -r; dy <= r; dy++ ) {
-                for( int dx = -r; dx <= r; dx++ ) {
-                    Tile const &tile = round->getTile(pos + Coords{dx, dy});
-                    sout << (char)tile.type;
-                    if( has_enemy(round->getTile(pos)) ) {
-                        enemies++;
-                        sout2 << pos << '\n';
-                    }
+            {
+                unique_lock<mutex> _(gGame->mutex);
+                auto round = requireRound();
+                Coords coords;
+                in >> coords;
+                validate_stream(in);
+                
+                if( not round->is_valid(coords) ) {
+                    cerr << "invalid coord" << endl;
+                    throw Error::internal;
                 }
-                sout << '\n';
+                    
+                Position pos = round->position(coords);
+                
+                auto has_own = [&round, this](Tile const &t) {
+                    return t.knight and t.knight->owner == player->faction->id;
+                };            
+                auto has_enemy = [&round, this](Tile const &t) {
+                    return t.knight and t.knight->owner != player->faction->id;
+                };
+                    
+                if( not has_own(round->getTile(pos)) ) {
+                    cerr << "no squad" << endl;
+                    throw Error::internal;
+                }
+                    
+                std::ostringstream sout, sout2;
+                int r = gGame->round->sight_range, enemies = 0;
+                sout << "OK\n";
+                sout << r << '\n';
+                for( int dy = -r; dy <= r; dy++ ) {
+                    for( int dx = -r; dx <= r; dx++ ) {
+                        Tile const &tile = round->getTile(pos + Coords{dx, dy});
+                        sout << (char)tile.type;
+                        if( has_enemy(round->getTile(pos)) ) {
+                            enemies++;
+                            sout2 << pos << '\n';
+                        }
+                    }
+                    sout << '\n';
+                }
+                sout << enemies << '\n';
             }
-            sout << enemies << '\n';
             sout << sout2.rdbuf();
-            
             client->write(sout.str());
         }
         
@@ -296,8 +185,19 @@ class BajConnection : public Connection {
     
         void LIST_MY_BATTLES(istream &in) {
         }
+        
+        void WAIT(istream &in) {
+            {
+                unique_lock<mutex> lock(gGame->mutex);
+                auto round = requireRound();
+                client->write("OK\nWAITING\n");
+                round->waiting.wait(lock);
+            }
+            client->write("OK\n");
+        }
     
         BajConnection(shared_ptr<Client> client, size_t id) : Connection(client) {
+            unique_lock<mutex> lock(gGame->mutex);
             player = gGame->getPlayer(id);
             if( player->active_connections >= 2 )
                 throw Error::too_many_connections;
@@ -306,6 +206,7 @@ class BajConnection : public Connection {
         }
         
         ~BajConnection() {
+            unique_lock<mutex> lock(gGame->mutex);
             player->active_connections--;
         }
         
@@ -322,10 +223,11 @@ Connection::CommandsMap BajConnection::command_map = {
     cmd("DESCRIBE_COTTAGES", &BajConnection::DESCRIBE_COTTAGES),
     cmd("EXPLORE", &BajConnection::EXPLORE),
     cmd("MOVE_SQUAD", &BajConnection::MOVE_SQUAD),
-    cmd("LIST_MY_BATTLES", &BajConnection::LIST_MY_BATTLES)
+    cmd("LIST_MY_BATTLES", &BajConnection::LIST_MY_BATTLES),
+    cmd("WAIT", &BajConnection::WAIT)
 };
 
 extern "C" void run(ConnectionFactoryList &cfl) {
     cfl << BajConnection::create;
-    gGame->createRound();
+    gGame = make_shared<Game>();
 }
