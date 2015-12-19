@@ -3,6 +3,8 @@
 
 struct Coords {
     int x, y;
+    Coords() = default;
+    constexpr Coords(int x, int y) : x(x), y(y) {}
     friend std::istream& operator>>(std::istream &in, Coords &pos) {
         return in >> pos.x >> pos.y;
     }

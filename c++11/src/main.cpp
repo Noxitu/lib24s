@@ -88,7 +88,7 @@ int main() {
     TCPListener listener;
     ConnectionFactoryList conn_factory;
     conn_factory << AdminConnection::create;
-    load_so("./baj.so")(conn_factory);
+    load_so("./oix.so")(conn_factory);
     
     while(true) {
         shared_ptr<Client> client = listener.accept();
